@@ -2,8 +2,8 @@
 // Author: Kenneth Pernyer, kenneth@aprio.one
 // SPDX-License-Identifier: MIT
 
-use serde::{Deserialize, Serialize};
 pub use crate::error::{LlmError, LlmErrorKind};
+use serde::{Deserialize, Serialize};
 
 /// Request to an LLM provider.
 #[derive(Debug, Clone, Serialize, Deserialize)]

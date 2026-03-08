@@ -6,6 +6,11 @@ pub mod error;
 pub mod llm;
 pub mod selection;
 
+#[cfg(test)]
+mod tests;
+
 pub use error::{LlmError, LlmErrorKind};
 pub use llm::{FinishReason, LlmProvider, LlmRequest, LlmResponse, TokenUsage};
-pub use selection::{AgentRequirements, ComplianceLevel, CostClass, DataSovereignty, ModelSelectorTrait};
+pub use selection::{
+    AgentRequirements, ComplianceLevel, CostClass, DataSovereignty, ModelSelectorTrait,
+};

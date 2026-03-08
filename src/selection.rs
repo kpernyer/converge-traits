@@ -2,8 +2,8 @@
 // Author: Kenneth Pernyer, kenneth@aprio.one
 // SPDX-License-Identifier: MIT
 
-use serde::{Deserialize, Serialize};
 use crate::llm::LlmError;
+use serde::{Deserialize, Serialize};
 
 /// Cost class of an LLM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
