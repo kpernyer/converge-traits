@@ -2,242 +2,270 @@
 // Author: Kenneth Pernyer, kenneth@aprio.one
 // SPDX-License-Identifier: MIT
 
-use crate::{
-    AgentRequirements, ComplianceLevel, CostClass, DataSovereignty, FinishReason, LlmError,
-    LlmErrorKind, LlmProvider, LlmRequest, LlmResponse, ModelSelectorTrait, TokenUsage,
-};
+//! Integration tests for converge-traits.
 
-// =============================================================================
-// LlmRequest tests
-// =============================================================================
+use super::*;
 
-#[test]
-fn llm_request_defaults() {
-    let req = LlmRequest::new("hello");
-    assert_eq!(req.prompt, "hello");
-    assert_eq!(req.max_tokens, 1024);
-    assert!((req.temperature - 0.7).abs() < f64::EPSILON);
-    assert!(req.system.is_none());
-    assert!(req.stop_sequences.is_empty());
+// ── Mock backends ─────────────────────────────────────────────────────
+
+struct MockLlmBackend;
+
+impl Backend for MockLlmBackend {
+    fn name(&self) -> &str {
+        "mock-llm"
+    }
+    fn kind(&self) -> BackendKind {
+        BackendKind::Llm
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::TextGeneration,
+            Capability::Reasoning,
+            Capability::CodeGeneration,
+        ]
+    }
+    fn supports_replay(&self) -> bool {
+        false
+    }
 }
 
-#[test]
-fn llm_request_builder() {
-    let req = LlmRequest::new("prompt")
-        .with_system("system")
-        .with_max_tokens(512)
-        .with_temperature(0.0)
-        .with_stop_sequence("STOP");
+struct MockPolicyBackend;
 
-    assert_eq!(req.system.as_deref(), Some("system"));
-    assert_eq!(req.max_tokens, 512);
-    assert!((req.temperature - 0.0).abs() < f64::EPSILON);
-    assert_eq!(req.stop_sequences, vec!["STOP"]);
+impl Backend for MockPolicyBackend {
+    fn name(&self) -> &str {
+        "mock-cedar"
+    }
+    fn kind(&self) -> BackendKind {
+        BackendKind::Policy
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::AccessControl,
+            Capability::ComplianceCheck,
+            Capability::AuditTrail,
+        ]
+    }
+    fn supports_replay(&self) -> bool {
+        true
+    }
+    fn requires_network(&self) -> bool {
+        false
+    }
 }
 
-#[test]
-fn llm_request_serde_roundtrip() {
-    let req = LlmRequest::new("test").with_max_tokens(256).with_system("sys");
-    let json = serde_json::to_string(&req).expect("serialize");
-    let back: LlmRequest = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(back.prompt, req.prompt);
-    assert_eq!(back.max_tokens, req.max_tokens);
-    assert_eq!(back.system, req.system);
+struct MockOptimizerBackend;
+
+impl Backend for MockOptimizerBackend {
+    fn name(&self) -> &str {
+        "mock-cpsat"
+    }
+    fn kind(&self) -> BackendKind {
+        BackendKind::Optimization
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::ConstraintSolving,
+            Capability::ResourceAllocation,
+            Capability::Scheduling,
+        ]
+    }
+    fn supports_replay(&self) -> bool {
+        true
+    }
+    fn requires_network(&self) -> bool {
+        false
+    }
 }
 
-// =============================================================================
-// LlmResponse / FinishReason / TokenUsage tests
-// =============================================================================
+struct MockAnalyticsBackend;
+
+impl Backend for MockAnalyticsBackend {
+    fn name(&self) -> &str {
+        "mock-burn"
+    }
+    fn kind(&self) -> BackendKind {
+        BackendKind::Analytics
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::Embedding,
+            Capability::Classification,
+            Capability::AnomalyDetection,
+        ]
+    }
+}
+
+struct MockLocalLlmBackend;
+
+impl Backend for MockLocalLlmBackend {
+    fn name(&self) -> &str {
+        "mock-local-llama"
+    }
+    fn kind(&self) -> BackendKind {
+        BackendKind::Llm
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        vec![
+            Capability::TextGeneration,
+            Capability::Offline,
+            Capability::Replay,
+        ]
+    }
+    fn supports_replay(&self) -> bool {
+        true
+    }
+    fn requires_network(&self) -> bool {
+        false
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────
 
 #[test]
-fn finish_reason_serde_stable() {
-    let cases = [
-        (FinishReason::Stop, "\"stop\""),
-        (FinishReason::MaxTokens, "\"max_tokens\""),
-        (FinishReason::StopSequence, "\"stop_sequence\""),
-        (FinishReason::ContentFilter, "\"content_filter\""),
+fn all_backend_kinds_are_first_class() {
+    let backends: Vec<Box<dyn Backend>> = vec![
+        Box::new(MockLlmBackend),
+        Box::new(MockPolicyBackend),
+        Box::new(MockOptimizerBackend),
+        Box::new(MockAnalyticsBackend),
+        Box::new(MockLocalLlmBackend),
     ];
-    for (variant, expected) in &cases {
-        let serialized = serde_json::to_string(variant).expect("serialize");
-        assert_eq!(&serialized, expected);
-        let back: FinishReason = serde_json::from_str(&serialized).expect("deserialize");
-        assert_eq!(&back, variant);
+
+    for backend in &backends {
+        assert!(!backend.name().is_empty());
+        assert!(!backend.capabilities().is_empty());
+        let _prov = backend.provenance("test-123");
     }
 }
 
 #[test]
-fn token_usage_default_is_zero() {
-    let usage = TokenUsage::default();
-    assert_eq!(usage.prompt_tokens, 0);
-    assert_eq!(usage.completion_tokens, 0);
-    assert_eq!(usage.total_tokens, 0);
-}
+fn capability_matching() {
+    let llm = MockLlmBackend;
+    assert!(llm.has_capability(Capability::TextGeneration));
+    assert!(llm.has_capability(Capability::Reasoning));
+    assert!(!llm.has_capability(Capability::AccessControl));
 
-// =============================================================================
-// LlmError tests
-// =============================================================================
-
-#[test]
-fn llm_error_auth_not_retryable() {
-    let err = LlmError::auth("bad key");
-    assert_eq!(err.kind, LlmErrorKind::Authentication);
-    assert!(!err.retryable);
+    let policy = MockPolicyBackend;
+    assert!(policy.has_capability(Capability::AccessControl));
+    assert!(!policy.has_capability(Capability::TextGeneration));
 }
 
 #[test]
-fn llm_error_rate_limit_is_retryable() {
-    let err = LlmError::rate_limit("too many");
-    assert_eq!(err.kind, LlmErrorKind::RateLimit);
-    assert!(err.retryable);
+fn replay_and_network_properties() {
+    let cloud_llm = MockLlmBackend;
+    assert!(!cloud_llm.supports_replay());
+    assert!(cloud_llm.requires_network());
+
+    let local_llm = MockLocalLlmBackend;
+    assert!(local_llm.supports_replay());
+    assert!(!local_llm.requires_network());
+
+    let policy = MockPolicyBackend;
+    assert!(policy.supports_replay());
+    assert!(!policy.requires_network());
 }
 
 #[test]
-fn llm_error_network_is_retryable() {
-    let err = LlmError::network("timeout");
-    assert_eq!(err.kind, LlmErrorKind::Network);
-    assert!(err.retryable);
+fn backend_kind_display() {
+    assert_eq!(BackendKind::Llm.to_string(), "llm");
+    assert_eq!(BackendKind::Policy.to_string(), "policy");
+    assert_eq!(BackendKind::Optimization.to_string(), "optimization");
+    assert_eq!(BackendKind::Analytics.to_string(), "analytics");
+    assert_eq!(BackendKind::Search.to_string(), "search");
+    assert_eq!(BackendKind::Storage.to_string(), "storage");
+    assert_eq!(
+        BackendKind::Other("custom".into()).to_string(),
+        "other:custom"
+    );
 }
 
 #[test]
-fn llm_error_parse_not_retryable() {
-    let err = LlmError::parse("bad json");
-    assert_eq!(err.kind, LlmErrorKind::ParseError);
-    assert!(!err.retryable);
+fn backend_kind_serialization() {
+    let json = serde_json::to_string(&BackendKind::Llm).unwrap();
+    assert_eq!(json, "\"Llm\"");
+
+    let parsed: BackendKind = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, BackendKind::Llm);
+
+    let other = BackendKind::Other("bioinformatics".into());
+    let json = serde_json::to_string(&other).unwrap();
+    let parsed: BackendKind = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, other);
 }
 
 #[test]
-fn llm_error_display_contains_message() {
-    let err = LlmError::provider("something went wrong");
-    let display = format!("{err}");
-    assert!(display.contains("something went wrong"));
+fn error_retryable_classification() {
+    assert!(BackendError::timeout("too slow").is_retryable());
+    assert!(BackendError::rate_limit("429").is_retryable());
+    assert!(BackendError::network("connection reset").is_retryable());
+    assert!(BackendError::unavailable("service down").is_retryable());
+
+    assert!(!BackendError::auth("bad key").is_retryable());
+    assert!(!BackendError::invalid_request("missing field").is_retryable());
+    assert!(!BackendError::parse("bad json").is_retryable());
+    assert!(!BackendError::unsupported(Capability::Reasoning).is_retryable());
 }
 
 #[test]
-fn llm_error_serde_roundtrip() {
-    let err = LlmError::new(LlmErrorKind::Timeout, "timed out", true);
-    let json = serde_json::to_string(&err).expect("serialize");
-    let back: LlmError = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(back.kind, LlmErrorKind::Timeout);
-    assert_eq!(back.message, "timed out");
-    assert!(back.retryable);
-}
-
-// =============================================================================
-// CostClass tests
-// =============================================================================
-
-#[test]
-fn cost_class_allowed_classes_inclusive() {
-    assert_eq!(CostClass::VeryLow.allowed_classes(), vec![CostClass::VeryLow]);
-    assert_eq!(CostClass::Low.allowed_classes().len(), 2);
-    assert_eq!(CostClass::Medium.allowed_classes().len(), 3);
-    assert_eq!(CostClass::High.allowed_classes().len(), 4);
-    assert_eq!(CostClass::VeryHigh.allowed_classes().len(), 5);
+fn error_serialization() {
+    let err = BackendError::timeout("exceeded 5000ms");
+    let json = serde_json::to_string(&err).unwrap();
+    let parsed: BackendError = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.kind, BackendErrorKind::Timeout);
+    assert!(parsed.retryable);
 }
 
 #[test]
-fn cost_class_ordering() {
-    assert!(CostClass::VeryLow < CostClass::Low);
-    assert!(CostClass::Low < CostClass::Medium);
-    assert!(CostClass::Medium < CostClass::High);
-    assert!(CostClass::High < CostClass::VeryHigh);
-}
+fn provenance_format() {
+    let llm = MockLlmBackend;
+    assert_eq!(llm.provenance("req-42"), "mock-llm:req-42");
 
-// =============================================================================
-// AgentRequirements tests
-// =============================================================================
-
-#[test]
-fn agent_requirements_fast_cheap() {
-    let req = AgentRequirements::fast_cheap();
-    assert_eq!(req.max_cost_class, CostClass::VeryLow);
-    assert_eq!(req.max_latency_ms, 2000);
-    assert!(!req.requires_reasoning);
-    assert_eq!(req.data_sovereignty, DataSovereignty::Any);
-    assert_eq!(req.compliance, ComplianceLevel::None);
+    let policy = MockPolicyBackend;
+    assert_eq!(policy.provenance("eval-7"), "mock-cedar:eval-7");
 }
 
 #[test]
-fn agent_requirements_balanced() {
-    let req = AgentRequirements::balanced();
-    assert!(req.min_quality > 0.0);
+fn capability_serialization() {
+    let cap = Capability::TextGeneration;
+    let json = serde_json::to_string(&cap).unwrap();
+    assert_eq!(json, "\"TextGeneration\"");
+
+    let other = Capability::Other("quantum-annealing".into());
+    let json = serde_json::to_string(&other).unwrap();
+    let parsed: Capability = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, other);
 }
 
 #[test]
-fn agent_requirements_powerful() {
-    let req = AgentRequirements::powerful();
-    assert!(req.requires_reasoning);
-    assert!(req.min_quality >= 0.9);
-}
+fn heterogeneous_backend_collection() {
+    let backends: Vec<Box<dyn Backend>> = vec![
+        Box::new(MockLlmBackend),
+        Box::new(MockPolicyBackend),
+        Box::new(MockOptimizerBackend),
+        Box::new(MockAnalyticsBackend),
+    ];
 
-#[test]
-fn agent_requirements_builder_methods() {
-    let req = AgentRequirements::fast_cheap()
-        .with_web_search(true)
-        .with_data_sovereignty(DataSovereignty::EU)
-        .with_compliance(ComplianceLevel::GDPR)
-        .with_multilingual(true)
-        .with_quality(0.85);
+    // Find all backends that support replay
+    let replayable: Vec<_> = backends
+        .iter()
+        .filter(|b| b.supports_replay())
+        .map(|b| b.name())
+        .collect();
+    assert_eq!(replayable, vec!["mock-cedar", "mock-cpsat"]);
 
-    assert!(req.requires_web_search);
-    assert_eq!(req.data_sovereignty, DataSovereignty::EU);
-    assert_eq!(req.compliance, ComplianceLevel::GDPR);
-    assert!(req.requires_multilingual);
-    assert!((req.min_quality - 0.85).abs() < f64::EPSILON);
-}
+    // Find all backends that can run offline
+    let offline: Vec<_> = backends
+        .iter()
+        .filter(|b| !b.requires_network())
+        .map(|b| b.name())
+        .collect();
+    assert_eq!(offline, vec!["mock-cedar", "mock-cpsat"]);
 
-// =============================================================================
-// ModelSelectorTrait impl test (mock)
-// =============================================================================
-
-struct FixedSelector {
-    provider: &'static str,
-    model: &'static str,
-}
-
-impl ModelSelectorTrait for FixedSelector {
-    fn select(&self, _requirements: &AgentRequirements) -> Result<(String, String), LlmError> {
-        Ok((self.provider.to_string(), self.model.to_string()))
-    }
-}
-
-#[test]
-fn model_selector_trait_returns_provider_and_model() {
-    let selector = FixedSelector { provider: "anthropic", model: "claude-3-haiku" };
-    let (provider, model) = selector.select(&AgentRequirements::fast_cheap()).expect("select");
-    assert_eq!(provider, "anthropic");
-    assert_eq!(model, "claude-3-haiku");
-}
-
-// =============================================================================
-// LlmProvider impl test (mock)
-// =============================================================================
-
-struct MockProvider;
-
-impl LlmProvider for MockProvider {
-    fn name(&self) -> &'static str { "mock" }
-    fn model(&self) -> &str { "mock-1" }
-    fn complete(&self, request: &LlmRequest) -> Result<LlmResponse, LlmError> {
-        Ok(LlmResponse {
-            content: format!("echo: {}", request.prompt),
-            model: self.model().to_string(),
-            usage: TokenUsage { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-            finish_reason: FinishReason::Stop,
-        })
-    }
-}
-
-#[test]
-fn llm_provider_complete_and_provenance() {
-    let p = MockProvider;
-    let req = LlmRequest::new("hi");
-    let resp = p.complete(&req).expect("complete");
-    assert_eq!(resp.content, "echo: hi");
-    assert_eq!(resp.finish_reason, FinishReason::Stop);
-    assert_eq!(resp.usage.total_tokens, 15);
-
-    let prov = p.provenance("req-42");
-    assert!(prov.contains("mock-1"));
-    assert!(prov.contains("req-42"));
+    // Find backend with specific capability
+    let reasoning: Vec<_> = backends
+        .iter()
+        .filter(|b| b.has_capability(Capability::Reasoning))
+        .map(|b| b.name())
+        .collect();
+    assert_eq!(reasoning, vec!["mock-llm"]);
 }
