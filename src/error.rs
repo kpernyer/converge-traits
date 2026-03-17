@@ -34,7 +34,7 @@ use crate::capability::Capability;
 /// let err = BackendError::new(BackendErrorKind::InvalidRequest, "missing field");
 /// assert!(!err.is_retryable());
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Error)]
 #[error("{kind}: {message}")]
 pub struct BackendError {
     /// Error category.

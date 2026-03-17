@@ -38,7 +38,7 @@ use crate::error::BackendError;
 ///     .with_capability(Capability::Reasoning)
 ///     .with_max_cost(CostClass::Medium);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendRequirements {
     /// Required backend kind.
     pub kind: BackendKind,

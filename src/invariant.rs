@@ -16,6 +16,8 @@
 //! - **Semantic**: end of cycle. Ensures logical consistency.
 //! - **Acceptance**: convergence claim. Final gate before results.
 
+use serde::{Deserialize, Serialize};
+
 use crate::context::Context;
 
 /// The class of an invariant determines when it runs.
@@ -24,7 +26,7 @@ use crate::context::Context;
 /// integrity). Others only matter at cycle boundaries (semantic consistency).
 /// Acceptance invariants are the final gate — they decide whether the
 /// converged result is actually acceptable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InvariantClass {
     /// Checked on every merge operation.
     ///
@@ -48,7 +50,7 @@ pub enum InvariantClass {
 }
 
 /// The result of checking an invariant.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InvariantResult {
     /// The invariant holds.
     Ok,

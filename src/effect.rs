@@ -12,6 +12,8 @@
 //! we guarantee that the same set of agents with the same context always
 //! produces the same result — regardless of parallel execution timing.
 
+use serde::{Deserialize, Serialize};
+
 use crate::fact::{Fact, ProposedFact};
 
 /// The output of an agent's `execute()` call.
@@ -27,7 +29,7 @@ use crate::fact::{Fact, ProposedFact};
 /// - `Propose`: LLM agents emit proposals that require validation.
 /// - `Nothing`: the agent ran but had nothing to contribute (legitimate
 ///   for guard/gate agents that only check conditions).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentEffect {
     /// Emit validated facts into the context.
     ///

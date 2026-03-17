@@ -40,7 +40,7 @@ use crate::context::ContextKey;
 /// The `id` field uniquely identifies this fact within its key namespace.
 /// Convention: `"{agent_name}-{uuid}"` for agent-produced facts,
 /// `"seed:{name}"` for initial seeds.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Fact {
     /// Unique identifier within the context key namespace.
     pub id: String,
@@ -63,7 +63,7 @@ pub struct Fact {
 ///
 /// After promotion, the resulting `Fact` gets ID:
 /// `"{agent_name}-{uuid}"` (the proposal prefix is stripped).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposedFact {
     /// Unique identifier encoding origin and target.
     pub id: String,
